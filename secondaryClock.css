@@ -1,0 +1,15 @@
+.clock-bottom.clock-component {
+    padding: 25px 12px;
+}
+
+.clock-bottom.clock-component .clock-icon-icon {
+    top: 6px;
+}
+
+.clock-bottom .clock-time-monospace {
+    font-size: 38px;
+}
+
+.clock-bottom .clock-icon-icon svg {
+    opacity: 0 !important;
+}
