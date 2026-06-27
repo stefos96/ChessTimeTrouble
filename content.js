@@ -109,25 +109,30 @@ function playTick() {
 }
 
 function playSoundForSeconds(seconds) {
-    const now = Date.now();
-    
-    // Every 10 seconds in the main window (60-50, 40-50, etc.)
-    if (seconds % 10 === 0 && (!lastSoundTime['beep'] || now - lastSoundTime['beep'] > 500)) {
-        playBeep();
-        lastSoundTime['beep'] = now;
-    }
-    
-    // Unique sound at exactly 30 seconds
-    if (seconds === 30 && (!lastSoundTime['warning'] || now - lastSoundTime['warning'] > 500)) {
-        playWarning();
-        lastSoundTime['warning'] = now;
-    }
-    
-    // Ticking sound every second when <= 10 seconds
-    if (seconds <= 10 && (!lastSoundTime['tick'] || now - lastSoundTime['tick'] > 900)) {
-        playTick();
-        lastSoundTime['tick'] = now;
-    }
+    // Check if sound is enabled in settings
+    chrome.storage.sync.get({ soundEnabled: true }, (items) => {
+        if (!items.soundEnabled) return;
+        
+        const now = Date.now();
+        
+        // Every 10 seconds in the main window (60-50, 40-50, etc.)
+        if (seconds % 10 === 0 && (!lastSoundTime['beep'] || now - lastSoundTime['beep'] > 500)) {
+            playBeep();
+            lastSoundTime['beep'] = now;
+        }
+        
+        // Unique sound at exactly 30 seconds
+        if (seconds === 30 && (!lastSoundTime['warning'] || now - lastSoundTime['warning'] > 500)) {
+            playWarning();
+            lastSoundTime['warning'] = now;
+        }
+        
+        // Ticking sound every second when <= 10 seconds
+        if (seconds <= 10 && (!lastSoundTime['tick'] || now - lastSoundTime['tick'] > 900)) {
+            playTick();
+            lastSoundTime['tick'] = now;
+        }
+    });
 }
 
 /* ---------------- CLOCK ---------------- */

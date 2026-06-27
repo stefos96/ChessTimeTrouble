@@ -8,6 +8,11 @@
     "48": "icon48.png",
     "128": "icon128.png"
   },
+  "permissions": ["storage"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Chess Timer Sounds"
+  },
   "content_scripts": [
     {
       "matches": ["https://www.chess.com/*"],
