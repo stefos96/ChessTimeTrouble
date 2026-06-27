@@ -73,7 +73,8 @@ function positionOverlay(el, board) {
 /* ---------------- CLOCK ---------------- */
 
 function getMyClockSeconds() {
-    const clocks = document.querySelectorAll('[data-cy="clock-time"]');
+    const clocks = document.querySelectorAll('.clock-component.clock-bottom span');
+
     if (!clocks.length) return null;
 
     // bottom clock = player clock
@@ -91,7 +92,7 @@ function start(board) {
     overlay = createOverlay(board);
 
     intervalId = setInterval(() => {
-        const clocks = document.querySelectorAll('[data-cy="clock-time"]');
+        const clocks = document.querySelectorAll('.clock-component.clock-bottom span');
         if (!clocks.length) {
             console.log("[LowTime] game ended, stopping");
             clearInterval(intervalId);
@@ -103,6 +104,7 @@ function start(board) {
         // positionOverlay(overlay, board);
 
         const seconds = getMyClockSeconds();
+        console.log(seconds)
 
         if (seconds !== null && seconds <= LOW_TIME_SECONDS) {
             overlay.hidden = false;
