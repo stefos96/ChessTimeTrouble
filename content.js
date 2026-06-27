@@ -4,6 +4,7 @@ const LOW_TIME_SECONDS = 30;
 let overlay = null;
 let intervalId = null;
 let initialized = false;
+let lastSoundTime = {}; // Track last sound played for each sound type
 
 /* ---------------- TIME PARSING ---------------- */
 
@@ -70,6 +71,65 @@ function positionOverlay(el, board) {
     el.style.height = rect.height + "px";
 }
 
+/* ---------------- SOUND SYSTEM ---------------- */
+
+const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+function playTone(frequency, duration, type = 'sine', volume = 0.3) {
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.type = type;
+    oscillator.frequency.value = frequency;
+    
+    gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + duration);
+}
+
+function playBeep() {
+    // Standard beep: 800Hz for 150ms
+    playTone(800, 0.15, 'sine', 0.3);
+}
+
+function playWarning() {
+    // Unique warning at 30 seconds: two ascending tones
+    playTone(600, 0.1, 'sine', 0.3);
+    setTimeout(() => playTone(900, 0.1, 'sine', 0.3), 110);
+}
+
+function playTick() {
+    // Clock ticking sound: short high-pitched beep
+    playTone(1200, 0.05, 'sine', 0.2);
+}
+
+function playSoundForSeconds(seconds) {
+    const now = Date.now();
+    
+    // Every 10 seconds in the main window (60-50, 40-50, etc.)
+    if (seconds % 10 === 0 && (!lastSoundTime['beep'] || now - lastSoundTime['beep'] > 500)) {
+        playBeep();
+        lastSoundTime['beep'] = now;
+    }
+    
+    // Unique sound at exactly 30 seconds
+    if (seconds === 30 && (!lastSoundTime['warning'] || now - lastSoundTime['warning'] > 500)) {
+        playWarning();
+        lastSoundTime['warning'] = now;
+    }
+    
+    // Ticking sound every second when <= 10 seconds
+    if (seconds <= 10 && (!lastSoundTime['tick'] || now - lastSoundTime['tick'] > 900)) {
+        playTick();
+        lastSoundTime['tick'] = now;
+    }
+}
+
 /* ---------------- CLOCK ---------------- */
 
 function getMyClockSeconds() {
@@ -91,6 +151,8 @@ function start(board) {
 
     overlay = createOverlay(board);
 
+    let previousTime = null;
+
     intervalId = setInterval(() => {
         const clocks = document.querySelectorAll('.clock-component.clock-bottom span');
         if (!clocks.length) {
@@ -105,6 +167,15 @@ function start(board) {
 
         const seconds = getMyClockSeconds();
         console.log(seconds)
+
+        if (previousTime !== seconds) {
+            // Play sounds based on time intervals
+            if (seconds !== null && seconds <= LOW_TIME_SECONDS) {
+                playSoundForSeconds(seconds);
+            }
+
+            previousTime = seconds;
+        }
 
         if (seconds !== null && seconds <= LOW_TIME_SECONDS) {
             overlay.hidden = false;
