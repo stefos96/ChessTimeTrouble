@@ -19,24 +19,105 @@ function parseTime(text) {
 
 const style = document.createElement("style");
 style.textContent = `
-@keyframes firePulse {
+@keyframes fireSubtle {
   0% {
     box-shadow:
-      0 0 8px 3px #ff4500,
-      0 0 16px 6px #ff6a00,
-      0 0 26px 10px rgba(255, 140, 0, 0.8);
+      0 0 6px 2px rgba(255, 69, 0, 0.4),
+      0 0 12px 4px rgba(255, 100, 0, 0.3),
+      0 0 18px 6px rgba(255, 140, 0, 0.2);
   }
   50% {
     box-shadow:
-      0 0 12px 4px #ff6a00,
-      0 0 22px 8px #ffa500,
-      0 0 36px 14px rgba(255, 69, 0, 0.9);
+      0 0 8px 3px rgba(255, 100, 0, 0.5),
+      0 0 16px 6px rgba(255, 140, 0, 0.4),
+      0 0 26px 10px rgba(255, 165, 0, 0.3);
   }
   100% {
     box-shadow:
-      0 0 8px 3px #ff4500,
+      0 0 6px 2px rgba(255, 69, 0, 0.4),
+      0 0 12px 4px rgba(255, 100, 0, 0.3),
+      0 0 18px 6px rgba(255, 140, 0, 0.2);
+  }
+}
+
+@keyframes fireMedium {
+  0% {
+    box-shadow:
+      0 0 10px 4px #ff4500,
+      0 0 20px 8px #ff6a00,
+      0 0 35px 15px rgba(255, 100, 0, 0.6),
+      0 0 50px 25px rgba(255, 140, 0, 0.3);
+  }
+  50% {
+    box-shadow:
       0 0 16px 6px #ff6a00,
-      0 0 26px 10px rgba(255, 140, 0, 0.8);
+      0 0 28px 12px #ffa500,
+      0 0 50px 20px rgba(255, 69, 0, 0.8),
+      0 0 70px 35px rgba(255, 100, 0, 0.4);
+  }
+  100% {
+    box-shadow:
+      0 0 10px 4px #ff4500,
+      0 0 20px 8px #ff6a00,
+      0 0 35px 15px rgba(255, 100, 0, 0.6),
+      0 0 50px 25px rgba(255, 140, 0, 0.3);
+  }
+}
+
+@keyframes fireFast {
+  0% {
+    box-shadow:
+      0 0 14px 6px #ff4500,
+      0 0 26px 12px #ff6a00,
+      0 0 45px 20px rgba(255, 69, 0, 0.8),
+      0 0 70px 35px rgba(255, 100, 0, 0.5),
+      0 0 100px 50px rgba(255, 140, 0, 0.3);
+  }
+  50% {
+    box-shadow:
+      0 0 22px 10px #ff6a00,
+      0 0 40px 18px #ffa500,
+      0 0 65px 30px rgba(255, 69, 0, 0.9),
+      0 0 100px 45px rgba(255, 100, 0, 0.6),
+      0 0 150px 70px rgba(255, 165, 0, 0.3);
+  }
+  100% {
+    box-shadow:
+      0 0 14px 6px #ff4500,
+      0 0 26px 12px #ff6a00,
+      0 0 45px 20px rgba(255, 69, 0, 0.8),
+      0 0 70px 35px rgba(255, 100, 0, 0.5),
+      0 0 100px 50px rgba(255, 140, 0, 0.3);
+  }
+}
+
+@keyframes fireIntense {
+  0% {
+    box-shadow:
+      0 0 18px 8px #ff4500,
+      0 0 35px 16px #ff6a00,
+      0 0 60px 28px rgba(255, 69, 0, 0.9),
+      0 0 100px 45px rgba(255, 100, 0, 0.7),
+      0 0 150px 70px rgba(255, 140, 0, 0.4),
+      0 0 220px 100px rgba(255, 165, 0, 0.2);
+  }
+  50% {
+    box-shadow:
+      0 0 28px 12px #ff6a00,
+      0 0 50px 24px #ffa500,
+      0 0 90px 40px rgba(255, 69, 0, 1),
+      0 0 150px 60px rgba(255, 100, 0, 0.8),
+      0 0 220px 100px rgba(255, 140, 0, 0.5),
+      0 0 300px 140px rgba(255, 165, 0, 0.3);
+  }
+  100% {
+    box-shadow:
+      0 0 18px 8px #ff4500,
+      0 0 35px 16px #ff6a00,
+      0 0 60px 28px rgba(255, 69, 0, 0.9),
+      0 0 100px 45px rgba(255, 100, 0, 0.7),
+      0 0 150px 70px rgba(255, 140, 0, 0.4),
+      0 0 220px 100px rgba(255, 165, 0, 0.2);
   }
 }
 `;
@@ -53,7 +134,7 @@ function createOverlay(board) {
         position: "absolute",
         pointerEvents: "none",
         borderRadius: "6px",
-        zIndex: "9999",
+        zIndex: "-5",
         animation: "firePulse 0.35s infinite alternate",
         willChange: "box-shadow"
     });
@@ -185,9 +266,20 @@ function start(board) {
         if (seconds !== null && seconds <= LOW_TIME_SECONDS) {
             overlay.hidden = false;
 
-            // 🔥 Increase intensity under 10 seconds
-            overlay.style.animationDuration =
-                seconds <= 10 ? "0.20s" : "0.35s";
+            // Progressive fire animation intensity based on time
+            if (seconds <= 10) {
+                overlay.style.animationName = "fireIntense";
+                overlay.style.animationDuration = "0.15s";
+            } else if (seconds <= 20) {
+                overlay.style.animationName = "fireFast";
+                overlay.style.animationDuration = "0.25s";
+            } else if (seconds <= 25) {
+                overlay.style.animationName = "fireMedium";
+                overlay.style.animationDuration = "0.40s";
+            } else {
+                overlay.style.animationName = "fireSubtle";
+                overlay.style.animationDuration = "0.60s";
+            }
         } else {
             overlay.hidden = true;
         }
