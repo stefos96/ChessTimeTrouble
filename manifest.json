@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Chess.com Low Time Warning",
   "version": "2.0",
-  "description": "Creates a breathing grid that moves depending on the time left on the clock. Also has the option to play sounds when the clock is low.",
+  "description": "Creates a breathing grid that moves depending on the time left on the clock.",
   "icons": {
     "16": "icon16.png",
     "48": "icon48.png",

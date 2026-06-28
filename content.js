@@ -10,7 +10,7 @@ let lastSoundTime = {};
 let currentSeconds = null;
 
 // Three.js variables
-let renderer, scene, camera, particleSystem, uniforms;
+let renderer, scene, camera, particleSystem, scatteredGlowSystem, uniforms, scatteredGlowUniforms;
 
 /* ---------------- FULL-WINDOW CANVAS OVERLAY ---------------- */
 const style = document.createElement("style");
@@ -57,7 +57,7 @@ function initThreeJS(container) {
 
     scene = new THREE.Scene();
 
-    // Grid Dimensions
+    // 1. GENERATE CORE PARTICLES LAYER
     const rows = 50;
     const cols = 50;
     const thickness = 5;
@@ -92,7 +92,7 @@ function initThreeJS(container) {
 
     uniforms = {
         color: { value: new THREE.Color(0x81B64C) },
-        pointSize: { value: window.devicePixelRatio * 3.5 }
+        pointSize: { value: window.devicePixelRatio * 5.0 }
     };
 
     const vertexShader = `
@@ -107,7 +107,11 @@ function initThreeJS(container) {
     const fragmentShader = `
         uniform vec3 color;
         void main() {
-            gl_FragColor = vec4(color, 1.0);
+            vec2 centerDist = gl_PointCoord - vec2(0.5);
+            float dist = length(centerDist);
+            if (dist > 0.5) discard;
+            float alpha = smoothstep(0.5, 0.1, dist);
+            gl_FragColor = vec4(color, alpha);
         }
     `;
 
@@ -116,11 +120,90 @@ function initThreeJS(container) {
         vertexShader: vertexShader,
         fragmentShader: fragmentShader,
         transparent: true,
-        depthTest: false
+        depthTest: false,
+        blending: THREE.AdditiveBlending
     });
 
     particleSystem = new THREE.Points(geometry, shaderMaterial);
     scene.add(particleSystem);
+
+    // 2. GENERATE SCATTERED AMORPHOUS BACKGROUND GLOW
+    // This system creates highly scattered, softer particles positioned directly behind the main framework
+    const scatterCount = 100;
+    const scatteredGeo = new THREE.BufferGeometry();
+    const scatterPositions = new Float32Array(scatterCount * 3);
+    const scatterGridCoords = new Float32Array(scatterCount * 2);
+    const scatterData = new Float32Array(scatterCount * 3); // custom offset X, offset Y, size/speed scaling
+
+    for (let i = 0; i < scatterCount; i++) {
+        // Tie to a random index selection from core grid parameters to balance it uniformly
+        const targetCoreIndex = Math.floor(Math.random() * particleCount);
+        scatterGridCoords[i * 2] = gridCoords[targetCoreIndex * 2];
+        scatterGridCoords[i * 2 + 1] = gridCoords[targetCoreIndex * 2 + 1];
+
+        scatterPositions[i * 3] = 0;
+        scatterPositions[i * 3 + 1] = 0;
+        scatterPositions[i * 3 + 2] = -10; // Placed firmly behind core point variables
+
+        // Random dispersion parameters to build a nebulous shape profile
+        scatterData[i * 3] = (Math.random() - 0.5) * 65.0;     // Offset X footprint spread
+        scatterData[i * 3 + 1] = (Math.random() - 0.5) * 65.0; // Offset Y footprint spread
+        scatterData[i * 3 + 2] = Math.random() * 0.6 + 0.6;    // Individual dynamic scale multiplier
+    }
+
+    scatteredGeo.setAttribute('position', new THREE.BufferAttribute(scatterPositions, 3));
+    scatteredGeo.setAttribute('gridCoord', new THREE.BufferAttribute(scatterGridCoords, 2));
+    scatteredGeo.setAttribute('scatterData', new THREE.BufferAttribute(scatterData, 3));
+
+    scatteredGlowUniforms = {
+        color: { value: new THREE.Color(0x81B64C) },
+        pointSize: { value: window.devicePixelRatio * 200.0 } // Massive soft points to achieve bleeding
+    };
+
+    const scatterVertexShader = `
+        attribute vec3 scatterData;
+        uniform float pointSize;
+        varying float vScale;
+
+        void main() {
+            vScale = scatterData.z;
+            // Apply coordinates + structural random dispersion factors 
+            vec3 scatteredPos = position + vec3(scatterData.xy, 0.0);
+            vec4 mvPosition = modelViewMatrix * vec4(scatteredPos, 1.0);
+            gl_Position = projectionMatrix * mvPosition;
+            
+            // Generate variable sizing scaling conditions per element
+            gl_PointSize = pointSize * vScale;
+        }
+    `;
+
+    const scatterFragmentShader = `
+        uniform vec3 color;
+        varying float vScale;
+
+        void main() {
+            vec2 centerDist = gl_PointCoord - vec2(0.5);
+            float dist = length(centerDist);
+            if (dist > 0.5) discard;
+
+            // Hyper-extended soft edge fallback mix to simulate atmospheric glow scattering
+            float alpha = smoothstep(0.5, 0.0, dist) * (0.09 * vScale);
+
+            gl_FragColor = vec4(color, alpha);
+        }
+    `;
+
+    const scatteredGlowMaterial = new THREE.ShaderMaterial({
+        uniforms: scatteredGlowUniforms,
+        vertexShader: scatterVertexShader,
+        fragmentShader: scatterFragmentShader,
+        transparent: true,
+        depthTest: false,
+        blending: THREE.AdditiveBlending
+    });
+
+    scatteredGlowSystem = new THREE.Points(scatteredGeo, scatteredGlowMaterial);
+    scene.add(scatteredGlowSystem);
 
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(window.devicePixelRatio);
@@ -137,7 +220,7 @@ let targetCenterX = 0;
 let targetCenterY = 0;
 
 function updateMeshPositionAndScale() {
-    if (!board || !particleSystem) return;
+    if (!board) return;
 
     const rect = board.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
@@ -157,20 +240,20 @@ function updateMeshPositionAndScale() {
 
 function animateThreeJS() {
     requestAnimationFrame(animateThreeJS);
-    if (!particleSystem) return;
+    if (!particleSystem || !scatteredGlowSystem) return;
 
     const time = Date.now() * 0.001;
 
     // Default: Smooth, gentle fluid motion
     let speedModifier = 2.0;
     let intensityModifier = 0.03;
-    let waveFrequency = 12.0; // Controls how tightly packed the wavy ripples are
+    let waveFrequency = 12.0;
 
     if (currentSeconds !== null && currentSeconds <= LOW_TIME_SECONDS) {
         if (currentSeconds <= 10) {
-            speedModifier = 7.5;       // Fast, high-tension elastic snap
-            intensityModifier = 0.09;  // Heavy displacement
-            waveFrequency = 20.0;      // Erratic, tightly grouped ripples
+            speedModifier = 7.5;
+            intensityModifier = 0.09;
+            waveFrequency = 20.0;
         } else if (currentSeconds <= 20) {
             speedModifier = 5.5;
             intensityModifier = 0.07;
@@ -190,32 +273,53 @@ function animateThreeJS() {
         }
     }
 
-    const geometry = particleSystem.geometry;
-    const positions = geometry.attributes.position.array;
-    const gridCoords = geometry.attributes.gridCoord.array;
-    const count = geometry.attributes.position.count;
+    // 1. ANIMATE FOREGROUND PARTICLES
+    const coreGeo = particleSystem.geometry;
+    const corePositions = coreGeo.attributes.position.array;
+    const coreGridCoords = coreGeo.attributes.gridCoord.array;
+    const coreCount = coreGeo.attributes.position.count;
 
-    for (let i = 0; i < count; i++) {
-        const normX = gridCoords[i * 2];
-        const normY = gridCoords[i * 2 + 1];
+    for (let i = 0; i < coreCount; i++) {
+        const normX = coreGridCoords[i * 2];
+        const normY = coreGridCoords[i * 2 + 1];
 
-        // Determine particle's distance from the absolute core center (0,0) to map the wave gradient
         const distanceFromCenter = Math.sqrt(normX * normX + normY * normY);
-
-        // Elastic Wave Equation: combines time progression with a spatial distance offset
-        // Subtracting 'distanceFromCenter * waveFrequency' creates a ripple that travels outward
         const wave = Math.sin(time * speedModifier - distanceFromCenter * waveFrequency);
-
-        // Dynamic elasticity factor applied uniquely to each grid point
         const elasticBreathFactor = 1.0 + wave * intensityModifier;
 
-        // Apply grid coordinates transformed by the unique ripple factor and center it onto the board
-        positions[i * 3]     = (normX * targetWidth * elasticBreathFactor) + targetCenterX;
-        positions[i * 3 + 1] = (normY * targetHeight * elasticBreathFactor) + targetCenterY;
-        positions[i * 3 + 2] = 0;
+        corePositions[i * 3]     = (normX * targetWidth * elasticBreathFactor) + targetCenterX;
+        corePositions[i * 3 + 1] = (normY * targetHeight * elasticBreathFactor) + targetCenterY;
     }
+    coreGeo.attributes.position.needsUpdate = true;
 
-    geometry.attributes.position.needsUpdate = true;
+
+    // 2. ANIMATE SCATTERED BACKGROUND GLOW (Now aligned with matching physical tracking spaces)
+    const scatterGeo = scatteredGlowSystem.geometry;
+    const scatterPositions = scatterGeo.attributes.position.array;
+    const scatterGridCoords = scatterGeo.attributes.gridCoord.array;
+    const scatterData = scatterGeo.attributes.scatterData.array;
+    const scatterCount = scatterGeo.attributes.position.count;
+
+    // Controls how far out the light breaks past the hard edge limits of the board
+    const scatterSpread = 60.0;
+
+    for (let i = 0; i < scatterCount; i++) {
+        const normX = scatterGridCoords[i * 2];
+        const normY = scatterGridCoords[i * 2 + 1];
+        const individualScale = scatterData[i * 3 + 2];
+
+        const distanceFromCenter = Math.sqrt(normX * normX + normY * normY);
+
+        // Slightly desynchronize individual motion speeds to break up hard shapes
+        const wave = Math.sin(time * (speedModifier * 0.8) - distanceFromCenter * (waveFrequency * individualScale));
+        const elasticBreathFactor = 1.0 + wave * (intensityModifier * 1.3);
+
+        // Corrected calculation combining correct board dimensions, scaling, offsets, and global positioning parameters
+        scatterPositions[i * 3]     = (normX * (targetWidth + scatterSpread) * elasticBreathFactor) + targetCenterX;
+        scatterPositions[i * 3 + 1] = (normY * (targetHeight + scatterSpread) * elasticBreathFactor) + targetCenterY;
+    }
+    scatterGeo.attributes.position.needsUpdate = true;
+
     renderer.render(scene, camera);
 }
 
