@@ -3,6 +3,7 @@ console.log("[LowTime] content script loaded");
 let board;
 
 const LOW_TIME_SECONDS = 30;
+const PADDING = 20; // 20px canvas padding on all sides
 let overlay = null;
 let intervalId = null;
 let initialized = false;
@@ -46,7 +47,7 @@ style.textContent = `
 /* Three.js Absolute Overlay Container */
 #threejs-overlay-container {
     position: absolute;
-    z-index: 5;
+    z-index: -5;
     pointer-events: none; 
     display: none;
 }
@@ -58,19 +59,26 @@ function initThreeJS(container) {
     if (!board) return;
     const rect = board.getBoundingClientRect();
 
-    // 1. Setup Camera matching the aspect ratio of the board
-    const aspect = rect.width / rect.height;
-    camera = new THREE.PerspectiveCamera(30, aspect, 1, 10000);
-    camera.position.z = 350;
+    // Canvas is larger to give room for the animations to spill over
+    const expandedWidth = rect.width + (PADDING * 2);
+    const expandedHeight = rect.height + (PADDING * 2);
+
+    // 1. Setup Orthographic Camera mapping 1:1 with the canvas container size
+    camera = new THREE.OrthographicCamera(
+        -expandedWidth / 2,  // Left
+        expandedWidth / 2,   // Right
+        expandedHeight / 2,  // Top
+        -expandedHeight / 2, // Bottom
+        1,                   // Near
+        1000                 // Far
+    );
+    camera.position.z = 500;
 
     scene = new THREE.Scene();
 
-    // 2. Create a highly subdivided Box Geometry scaled to aspect ratio
-    const width = 140 * aspect;
-    const height = 140;
-    const depth = 20;
+    // 2. The 3D Mesh matches the original board size exactly, leaving 20px padding inside the canvas boundaries
     const segments = 40;
-    const geometry = new THREE.BoxGeometry(width, height, depth, segments, segments, segments);
+    const geometry = new THREE.BoxGeometry(rect.width, rect.height, 20, segments, segments, segments);
 
     // 3. Populate custom displacement array for every vertex
     const numVertices = geometry.attributes.position.count;
@@ -125,10 +133,10 @@ function initThreeJS(container) {
     boxMesh = new THREE.Mesh(geometry, shaderMaterial);
     scene.add(boxMesh);
 
-    // 7. Setup WebGL Renderer matching exact board sizing
+    // 7. Setup WebGL Renderer matching canvas size
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.setSize(rect.width, rect.height);
+    renderer.setSize(expandedWidth, expandedHeight);
     container.appendChild(renderer.domElement);
 
     animateThreeJS();
@@ -180,7 +188,7 @@ function createOverlay(board) {
 
     document.body.appendChild(threeContainer);
     positionOverlay(threeContainer, board);
-    threeContainer.style.zIndex = "5"; // Render explicitly in front of the board layout
+    threeContainer.style.zIndex = "-5";
 
     initThreeJS(threeContainer);
 
@@ -189,13 +197,15 @@ function createOverlay(board) {
 
 function positionOverlay(el, board) {
     const rect = board.getBoundingClientRect();
-    el.style.left = (rect.left + window.scrollX) + "px";
-    el.style.top = (rect.top + window.scrollY) + "px";
-    el.style.width = rect.width + "px";
-    el.style.height = rect.height + "px";
+
+    // Position HTML container 20px wider and higher than the board, perfectly centered
+    el.style.left = (rect.left + window.scrollX - PADDING) + "px";
+    el.style.top = (rect.top + window.scrollY - PADDING) + "px";
+    el.style.width = (rect.width + (PADDING * 2)) + "px";
+    el.style.height = (rect.height + (PADDING * 2)) + "px";
 }
 
-/* ---------------- RE-POSITION ON WINDOW RESIZE ---------------- */
+/* ---------------- RE-POSITION AND SCALE ON WINDOW RESIZE ---------------- */
 window.addEventListener('resize', () => {
     if (board && initialized) {
         const threeContainer = document.getElementById("threejs-overlay-container");
@@ -204,10 +214,30 @@ window.addEventListener('resize', () => {
             positionOverlay(threeContainer, board);
 
             const rect = board.getBoundingClientRect();
-            if (renderer && camera) {
-                renderer.setSize(rect.width, rect.height);
-                camera.aspect = rect.width / rect.height;
+            const expandedWidth = rect.width + (PADDING * 2);
+            const expandedHeight = rect.height + (PADDING * 2);
+
+            if (renderer && camera && boxMesh) {
+                renderer.setSize(expandedWidth, expandedHeight);
+
+                // Update orthographic camera bounds dynamically
+                camera.left = -expandedWidth / 2;
+                camera.right = expandedWidth / 2;
+                camera.top = expandedHeight / 2;
+                camera.bottom = -expandedHeight / 2;
                 camera.updateProjectionMatrix();
+
+                // Re-size geometry to match original board dimensions precisely
+                boxMesh.geometry.dispose();
+                boxMesh.geometry = new THREE.BoxGeometry(rect.width, rect.height, 20, 40, 40, 40);
+
+                // Re-populate custom displacement for the new geometry sizes
+                const numVertices = boxMesh.geometry.attributes.position.count;
+                displacement = new Float32Array(numVertices);
+                for (let i = 0; i < numVertices; i++) {
+                    displacement[i] = Math.random() * 15;
+                }
+                boxMesh.geometry.setAttribute('displacement', new THREE.BufferAttribute(displacement, 1));
             }
         }
     }
