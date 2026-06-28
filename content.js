@@ -57,7 +57,7 @@ function initThreeJS(container) {
 
     scene = new THREE.Scene();
 
-    // 1. GENERATE CORE PARTICLES LAYER
+    // 1. GENERATE CORE PARTICLES LAYER (Single system handling Core + Close Glow Ring)
     const rows = 50;
     const cols = 50;
     const thickness = 5;
@@ -92,7 +92,7 @@ function initThreeJS(container) {
 
     uniforms = {
         color: { value: new THREE.Color(0x81B64C) },
-        pointSize: { value: window.devicePixelRatio * 5.0 }
+        pointSize: { value: window.devicePixelRatio * 16.0 } // Large canvas area per point to hold the tight glow gradient
     };
 
     const vertexShader = `
@@ -110,8 +110,18 @@ function initThreeJS(container) {
             vec2 centerDist = gl_PointCoord - vec2(0.5);
             float dist = length(centerDist);
             if (dist > 0.5) discard;
-            float alpha = smoothstep(0.5, 0.1, dist);
-            gl_FragColor = vec4(color, alpha);
+            
+            // Multi-stage interpolation for an organic integrated glow:
+            // 1. High-intensity sharp inner core (from center 0.0 to 0.15)
+            float core = smoothstep(0.15, 0.0, dist);
+            
+            // 2. Immediate fading outer aura ring (from edge 0.5 down to 0.15)
+            float glow = smoothstep(0.5, 0.10, dist) * 0.4;
+            
+            // Combine both stages so the halo is perfectly anchored directly to its core
+            float totalAlpha = core + glow;
+            
+            gl_FragColor = vec4(color, totalAlpha);
         }
     `;
 
@@ -127,28 +137,26 @@ function initThreeJS(container) {
     particleSystem = new THREE.Points(geometry, shaderMaterial);
     scene.add(particleSystem);
 
-    // 2. GENERATE SCATTERED AMORPHOUS BACKGROUND GLOW
-    // This system creates highly scattered, softer particles positioned directly behind the main framework
-    const scatterCount = 100;
+    // 2. GENERATE SCATTERED AMORPHOUS BACKGROUND GLOW (The true smoky background layer)
+    const scatterCount = 180;
     const scatteredGeo = new THREE.BufferGeometry();
     const scatterPositions = new Float32Array(scatterCount * 3);
     const scatterGridCoords = new Float32Array(scatterCount * 2);
-    const scatterData = new Float32Array(scatterCount * 3); // custom offset X, offset Y, size/speed scaling
+    const scatterData = new Float32Array(scatterCount * 3);
 
     for (let i = 0; i < scatterCount; i++) {
-        // Tie to a random index selection from core grid parameters to balance it uniformly
         const targetCoreIndex = Math.floor(Math.random() * particleCount);
         scatterGridCoords[i * 2] = gridCoords[targetCoreIndex * 2];
         scatterGridCoords[i * 2 + 1] = gridCoords[targetCoreIndex * 2 + 1];
 
         scatterPositions[i * 3] = 0;
         scatterPositions[i * 3 + 1] = 0;
-        scatterPositions[i * 3 + 2] = -10; // Placed firmly behind core point variables
+        scatterPositions[i * 3 + 2] = -10;
 
-        // Random dispersion parameters to build a nebulous shape profile
-        scatterData[i * 3] = (Math.random() - 0.5) * 65.0;     // Offset X footprint spread
-        scatterData[i * 3 + 1] = (Math.random() - 0.5) * 65.0; // Offset Y footprint spread
-        scatterData[i * 3 + 2] = Math.random() * 0.6 + 0.6;    // Individual dynamic scale multiplier
+        // Scatter footprint values
+        scatterData[i * 3] = (Math.random() - 0.5) * 50.0;
+        scatterData[i * 3 + 1] = (Math.random() - 0.5) * 50.0;
+        scatterData[i * 3 + 2] = Math.random() * 0.5 + 0.7;
     }
 
     scatteredGeo.setAttribute('position', new THREE.BufferAttribute(scatterPositions, 3));
@@ -157,7 +165,7 @@ function initThreeJS(container) {
 
     scatteredGlowUniforms = {
         color: { value: new THREE.Color(0x81B64C) },
-        pointSize: { value: window.devicePixelRatio * 200.0 } // Massive soft points to achieve bleeding
+        pointSize: { value: window.devicePixelRatio * 100.0 }
     };
 
     const scatterVertexShader = `
@@ -167,12 +175,9 @@ function initThreeJS(container) {
 
         void main() {
             vScale = scatterData.z;
-            // Apply coordinates + structural random dispersion factors 
             vec3 scatteredPos = position + vec3(scatterData.xy, 0.0);
             vec4 mvPosition = modelViewMatrix * vec4(scatteredPos, 1.0);
             gl_Position = projectionMatrix * mvPosition;
-            
-            // Generate variable sizing scaling conditions per element
             gl_PointSize = pointSize * vScale;
         }
     `;
@@ -186,9 +191,8 @@ function initThreeJS(container) {
             float dist = length(centerDist);
             if (dist > 0.5) discard;
 
-            // Hyper-extended soft edge fallback mix to simulate atmospheric glow scattering
-            float alpha = smoothstep(0.5, 0.0, dist) * (0.09 * vScale);
-
+            // Wide ambient cloud profile
+            float alpha = smoothstep(0.5, 0.0, dist) * (0.07 * vScale);
             gl_FragColor = vec4(color, alpha);
         }
     `;
@@ -273,7 +277,7 @@ function animateThreeJS() {
         }
     }
 
-    // 1. ANIMATE FOREGROUND PARTICLES
+    // 1. ANIMATE INTEGRATED GRID PARTICLES
     const coreGeo = particleSystem.geometry;
     const corePositions = coreGeo.attributes.position.array;
     const coreGridCoords = coreGeo.attributes.gridCoord.array;
@@ -292,16 +296,14 @@ function animateThreeJS() {
     }
     coreGeo.attributes.position.needsUpdate = true;
 
-
-    // 2. ANIMATE SCATTERED BACKGROUND GLOW (Now aligned with matching physical tracking spaces)
+    // 2. ANIMATE AMORPHOUS BACKGROUND CLOWNS
     const scatterGeo = scatteredGlowSystem.geometry;
     const scatterPositions = scatterGeo.attributes.position.array;
     const scatterGridCoords = scatterGeo.attributes.gridCoord.array;
     const scatterData = scatterGeo.attributes.scatterData.array;
     const scatterCount = scatterGeo.attributes.position.count;
 
-    // Controls how far out the light breaks past the hard edge limits of the board
-    const scatterSpread = 60.0;
+    const scatterSpread = 40.0;
 
     for (let i = 0; i < scatterCount; i++) {
         const normX = scatterGridCoords[i * 2];
@@ -309,12 +311,9 @@ function animateThreeJS() {
         const individualScale = scatterData[i * 3 + 2];
 
         const distanceFromCenter = Math.sqrt(normX * normX + normY * normY);
-
-        // Slightly desynchronize individual motion speeds to break up hard shapes
         const wave = Math.sin(time * (speedModifier * 0.8) - distanceFromCenter * (waveFrequency * individualScale));
-        const elasticBreathFactor = 1.0 + wave * (intensityModifier * 1.3);
+        const elasticBreathFactor = 1.0 + wave * (intensityModifier * 1.2);
 
-        // Corrected calculation combining correct board dimensions, scaling, offsets, and global positioning parameters
         scatterPositions[i * 3]     = (normX * (targetWidth + scatterSpread) * elasticBreathFactor) + targetCenterX;
         scatterPositions[i * 3 + 1] = (normY * (targetHeight + scatterSpread) * elasticBreathFactor) + targetCenterY;
     }
