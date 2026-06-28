@@ -171,19 +171,17 @@ function animateThreeJS() {
 
     const attribute = boxMesh.geometry.attributes.displacement;
     for (let i = 0; i < attribute.count; i++) {
-        if (currentSeconds > 40) {
-            // Calm, uniform breathing rhythm applied to ALL vertices equally (No jagged spikes!)
-            // It uses a shifting sine wave so it behaves like an inflating/deflating clean sphere
+        if (currentSeconds === null || currentSeconds > 40) {
+            // Calm, uniform breathing rhythm (Perfect sphere)
             attribute.array[i] = 4.0 + Math.sin(time * 1.5) * 1.5;
         } else if (currentSeconds > 30 && currentSeconds <= 40) {
-            attribute.array[i] += Math.sin(i + time * 2 * speedModifier) * 0.5 * speedModifier;
-            if (attribute.array[i] > 25) attribute.array[i] = 8;
-            if (attribute.array[i] < 0) attribute.array[i] = 8;
+            // Transitional subtle texture: uses continuous sine mapping to remove sharp cuts
+            // 'i * 0.15' clumps vertices together into soft, rolling humps
+            attribute.array[i] = 8.0 + Math.sin(i * 0.15 + time * 2.0 * speedModifier) * 2.0;
         } else {
-            // Standard chaotic spike logic during low time
-            attribute.array[i] += Math.sin(i + time * 5 * speedModifier) * 0.5 * speedModifier;
-            if (attribute.array[i] > 25) attribute.array[i] = 10;
-            if (attribute.array[i] < 0) attribute.array[i] = 10;
+            // LOW TIME: Noticeable spikes, but structurally smooth.
+            // No hard 'if' clamp jumps anymore. Spikes are taller but have safe rounded tips/valleys.
+            attribute.array[i] = 10.0 + Math.sin(i * 0.15 + time * 5.0 * speedModifier) * 4.5;
         }
     }
     attribute.needsUpdate = true;
