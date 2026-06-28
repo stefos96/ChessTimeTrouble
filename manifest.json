@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Chess.com Low Time Warning",
-  "version": "1.0",
-  "description": "Turns the board outline red when you are low on time.",
+  "version": "2.0",
+  "description": "Creates a breathing grid that moves depending on the time left on the clock. Also has the option to play sounds when the clock is low.",
   "icons": {
     "16": "icon16.png",
     "48": "icon48.png",
