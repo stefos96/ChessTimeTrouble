@@ -3,25 +3,32 @@ console.log("[LowTime] content script loaded");
 let board;
 
 const LOW_TIME_SECONDS = 30;
-const PADDING = 20; // 20px canvas padding on all sides
 let overlayContainer = null;
 let intervalId = null;
 let initialized = false;
 let lastSoundTime = {};
-let currentSeconds = null; // Track current seconds for Three.js animation speed
+let currentSeconds = null;
 
 // Three.js variables
 let renderer, scene, camera, boxMesh, uniforms, displacement;
 
-/* ---------------- FIRE CSS REMOVED / ONLY BASIC OVERLAY CONTAINER ---------------- */
+/* ---------------- FULL-WINDOW CANVAS OVERLAY ---------------- */
 const style = document.createElement("style");
 style.textContent = `
-/* Three.js Absolute Overlay Container */
 #threejs-overlay-container {
-    position: absolute;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
     z-index: -5;
     display: none;
     pointer-events: none; 
+}
+#threejs-overlay-container canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
 }
 `;
 document.head.appendChild(style);
@@ -37,46 +44,33 @@ function parseTime(text) {
 /* ---------------- THREE.JS INITIALIZATION ---------------- */
 function initThreeJS(container) {
     if (!board) return;
-    const rect = board.getBoundingClientRect();
 
-    // Canvas is larger to give room for the animations to spill over
-    const expandedWidth = rect.width + (PADDING * 2);
-    const expandedHeight = rect.height + (PADDING * 2);
-
-    // 1. Setup Orthographic Camera mapping 1:1 with the canvas container size
     camera = new THREE.OrthographicCamera(
-        -expandedWidth / 2,  // Left
-        expandedWidth / 2,   // Right
-        expandedHeight / 2,  // Top
-        -expandedHeight / 2, // Bottom
-        1,                   // Near
-        1000                 // Far
+        -window.innerWidth / 2,
+        window.innerWidth / 2,
+        window.innerHeight / 2,
+        -window.innerHeight / 2,
+        1,
+        1000
     );
     camera.position.z = 500;
 
     scene = new THREE.Scene();
 
-    // 2. The 3D Mesh matches the original board size exactly, leaving 20px padding inside the canvas boundaries
-    const segments = 40;
-    const geometry = new THREE.BoxGeometry(rect.width, rect.height, 20, segments, segments, segments);
+    const geometry = new THREE.SphereGeometry(1, 64, 64);
 
-    // 3. Populate custom displacement array for every vertex
     const numVertices = geometry.attributes.position.count;
     displacement = new Float32Array(numVertices);
-
     for (let i = 0; i < numVertices; i++) {
         displacement[i] = Math.random() * 15;
     }
-
     geometry.setAttribute('displacement', new THREE.BufferAttribute(displacement, 1));
 
-    // 4. Uniforms configuration
     uniforms = {
         amplitude: { value: 1.0 },
         color: { value: new THREE.Color(0x81B64C) }
     };
 
-    // 5. Shaders handling vertex protrusion along normals
     const vertexShader = `
         uniform float amplitude;
         attribute float displacement;
@@ -84,7 +78,8 @@ function initThreeJS(container) {
         
         void main() {
             vNormal = normal;
-            vec3 newPosition = position + normal * displacement * amplitude;
+            vec3 direction = normalize(position);
+            vec3 newPosition = position + direction * (displacement * amplitude * 0.05);
             gl_Position = projectionMatrix * modelViewMatrix * vec4(newPosition, 1.0);
         }
     `;
@@ -96,13 +91,11 @@ function initThreeJS(container) {
         void main() {
             vec3 light = vec3(0.5, 0.2, 1.0);
             light = normalize(light);
-            float dProd = max(0.1, dot(vNormal, light));
-            
+            float dProd = max(0.2, dot(vNormal, light));
             gl_FragColor = vec4(color * dProd, 1.0);
         }
     `;
 
-    // 6. Create Material and Mesh
     const shaderMaterial = new THREE.ShaderMaterial({
         uniforms: uniforms,
         vertexShader: vertexShader,
@@ -113,13 +106,32 @@ function initThreeJS(container) {
     boxMesh = new THREE.Mesh(geometry, shaderMaterial);
     scene.add(boxMesh);
 
-    // 7. Setup WebGL Renderer matching canvas size
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.setSize(expandedWidth, expandedHeight);
+    renderer.setSize(window.innerWidth, window.innerHeight);
     container.appendChild(renderer.domElement);
 
+    updateMeshPositionAndScale();
+
     animateThreeJS();
+}
+
+// Moved calculations out of RAF loop to avoid triggering chess engine state lockups
+function updateMeshPositionAndScale() {
+    if (!board || !boxMesh) return;
+
+    const rect = board.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return; // Guard against hidden elements
+
+    boxMesh.scale.set(rect.width / 2, rect.height / 2, 10);
+
+    const screenCenterX = window.innerWidth / 2;
+    const screenCenterY = window.innerHeight / 2;
+    const boardCenterX = rect.left + (rect.width / 2);
+    const boardCenterY = rect.top + (rect.height / 2);
+
+    boxMesh.position.x = boardCenterX - screenCenterX;
+    boxMesh.position.y = screenCenterY - boardCenterY;
 }
 
 function animateThreeJS() {
@@ -128,30 +140,28 @@ function animateThreeJS() {
 
     const time = Date.now() * 0.001;
 
-    boxMesh.rotation.y = 0;
-    boxMesh.rotation.x = 0;
-
-    // Dynamically adjust speeds based on remaining seconds
     let speedModifier = 1.0;
     let intensityModifier = 1.0;
 
     if (currentSeconds !== null && currentSeconds <= LOW_TIME_SECONDS) {
         if (currentSeconds <= 10) {
-            speedModifier = 4.0;      // Super fast spikes
-            intensityModifier = 1.8;  // Taller spikes
+            speedModifier = 4.0;
+            intensityModifier = 1.8;
         } else if (currentSeconds <= 20) {
-            speedModifier = 2.5;      // Fast spikes
+            speedModifier = 2.5;
             intensityModifier = 1.4;
         } else if (currentSeconds <= 25) {
-            speedModifier = 1.5;      // Medium spikes
+            speedModifier = 1.5;
             intensityModifier = 1.1;
+        } else if (currentSeconds <= 30) {
+            speedModifier = 1.3;
+            intensityModifier = 1;
         } else {
-            speedModifier = 0.8;      // Slow, subtle spikes
-            intensityModifier = 0.7;
+            speedModifier = 1;
+            intensityModifier = .8;
         }
     }
 
-    // Apply speed modifiers to vertex waves and scaling amplitudes
     uniforms.amplitude.value = (0.5 + Math.sin(time * 2.0 * speedModifier) * 0.3) * intensityModifier;
 
     const attribute = boxMesh.geometry.attributes.displacement;
@@ -165,61 +175,28 @@ function animateThreeJS() {
     renderer.render(scene, camera);
 }
 
-/* ---------------- OVERLAY ---------------- */
+/* ---------------- OVERLAY SETUP ---------------- */
 function createOverlay(board) {
-    // ThreeJS Container aligned over the board
     const threeContainer = document.createElement("div");
     threeContainer.id = "threejs-overlay-container";
-
     document.body.appendChild(threeContainer);
-    positionOverlay(threeContainer, board);
 
     initThreeJS(threeContainer);
-
     return threeContainer;
 }
 
-function positionOverlay(el, board) {
-    const rect = board.getBoundingClientRect();
-
-    // Position HTML container 20px wider and higher than the board, perfectly centered
-    el.style.left = (rect.left + window.scrollX - PADDING) + "px";
-    el.style.top = (rect.top + window.scrollY - PADDING) + "px";
-    el.style.width = (rect.width + (PADDING * 2)) + "px";
-    el.style.height = (rect.height + (PADDING * 2)) + "px";
-}
-
-/* ---------------- RE-POSITION AND SCALE ON WINDOW RESIZE ---------------- */
+/* ---------------- WINDOW RESIZE HANDLING ---------------- */
 window.addEventListener('resize', () => {
-    if (board && initialized && overlayContainer) {
-        positionOverlay(overlayContainer, board);
+    if (initialized && renderer && camera) {
+        renderer.setSize(window.innerWidth, window.innerHeight);
 
-        const rect = board.getBoundingClientRect();
-        const expandedWidth = rect.width + (PADDING * 2);
-        const expandedHeight = rect.height + (PADDING * 2);
+        camera.left = -window.innerWidth / 2;
+        camera.right = window.innerWidth / 2;
+        camera.top = window.innerHeight / 2;
+        camera.bottom = -window.innerHeight / 2;
+        camera.updateProjectionMatrix();
 
-        if (renderer && camera && boxMesh) {
-            renderer.setSize(expandedWidth, expandedHeight);
-
-            // Update orthographic camera bounds dynamically
-            camera.left = -expandedWidth / 2;
-            camera.right = expandedWidth / 2;
-            camera.top = expandedHeight / 2;
-            camera.bottom = -expandedHeight / 2;
-            camera.updateProjectionMatrix();
-
-            // Re-size geometry to match original board dimensions precisely
-            boxMesh.geometry.dispose();
-            boxMesh.geometry = new THREE.BoxGeometry(rect.width, rect.height, 20, 40, 40, 40);
-
-            // Re-populate custom displacement for the new geometry sizes
-            const numVertices = boxMesh.geometry.attributes.position.count;
-            displacement = new Float32Array(numVertices);
-            for (let i = 0; i < numVertices; i++) {
-                displacement[i] = Math.random() * 15;
-            }
-            boxMesh.geometry.setAttribute('displacement', new THREE.BufferAttribute(displacement, 1));
-        }
+        updateMeshPositionAndScale();
     }
 });
 
@@ -304,7 +281,9 @@ function start(board) {
             previousTime = currentSeconds;
         }
 
-        if (currentSeconds !== null && currentSeconds <= LOW_TIME_SECONDS) {
+        if (currentSeconds !== null) {
+            // Safely verify and update positions every quarter second rather than every frame
+            updateMeshPositionAndScale();
             if (overlayContainer) overlayContainer.style.display = "block";
         } else {
             if (overlayContainer) overlayContainer.style.display = "none";
