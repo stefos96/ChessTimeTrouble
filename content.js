@@ -140,8 +140,9 @@ function animateThreeJS() {
 
     const time = Date.now() * 0.001;
 
-    let speedModifier = 1.0;
-    let intensityModifier = 1.0;
+    // Default: Smooth, slow idle breathing for times > 30 seconds
+    let speedModifier = 0.5;
+    let intensityModifier = 0.6;
 
     if (currentSeconds !== null && currentSeconds <= LOW_TIME_SECONDS) {
         if (currentSeconds <= 10) {
@@ -154,21 +155,36 @@ function animateThreeJS() {
             speedModifier = 1.5;
             intensityModifier = 1.1;
         } else if (currentSeconds <= 30) {
-            speedModifier = 1.3;
-            intensityModifier = 1;
+            speedModifier = 1.4;
+            intensityModifier = 1.08;
+        } else if (currentSeconds <= 40) {
+            speedModifier = 1.35;
+            intensityModifier = 1.05;
         } else {
-            speedModifier = 1;
-            intensityModifier = .8;
+            speedModifier = 1.3;
+            intensityModifier = 1.0;
         }
     }
 
+    // Set the baseline scale pulsation via uniforms
     uniforms.amplitude.value = (0.5 + Math.sin(time * 2.0 * speedModifier) * 0.3) * intensityModifier;
 
     const attribute = boxMesh.geometry.attributes.displacement;
     for (let i = 0; i < attribute.count; i++) {
-        attribute.array[i] += Math.sin(i + time * 5 * speedModifier) * 0.5 * speedModifier;
-        if (attribute.array[i] > 25) attribute.array[i] = 10;
-        if (attribute.array[i] < 0) attribute.array[i] = 10;
+        if (currentSeconds > 40) {
+            // Calm, uniform breathing rhythm applied to ALL vertices equally (No jagged spikes!)
+            // It uses a shifting sine wave so it behaves like an inflating/deflating clean sphere
+            attribute.array[i] = 4.0 + Math.sin(time * 1.5) * 1.5;
+        } else if (currentSeconds > 30 && currentSeconds <= 40) {
+            attribute.array[i] += Math.sin(i + time * 2 * speedModifier) * 0.5 * speedModifier;
+            if (attribute.array[i] > 25) attribute.array[i] = 8;
+            if (attribute.array[i] < 0) attribute.array[i] = 8;
+        } else {
+            // Standard chaotic spike logic during low time
+            attribute.array[i] += Math.sin(i + time * 5 * speedModifier) * 0.5 * speedModifier;
+            if (attribute.array[i] > 25) attribute.array[i] = 10;
+            if (attribute.array[i] < 0) attribute.array[i] = 10;
+        }
     }
     attribute.needsUpdate = true;
 
