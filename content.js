@@ -4,13 +4,27 @@ let board;
 
 const LOW_TIME_SECONDS = 30;
 const PADDING = 20; // 20px canvas padding on all sides
-let overlay = null;
+let overlayContainer = null;
 let intervalId = null;
 let initialized = false;
 let lastSoundTime = {};
+let currentSeconds = null; // Track current seconds for Three.js animation speed
 
 // Three.js variables
 let renderer, scene, camera, boxMesh, uniforms, displacement;
+
+/* ---------------- FIRE CSS REMOVED / ONLY BASIC OVERLAY CONTAINER ---------------- */
+const style = document.createElement("style");
+style.textContent = `
+/* Three.js Absolute Overlay Container */
+#threejs-overlay-container {
+    position: absolute;
+    z-index: -5;
+    display: none;
+    pointer-events: none; 
+}
+`;
+document.head.appendChild(style);
 
 /* ---------------- TIME PARSING ---------------- */
 function parseTime(text) {
@@ -19,40 +33,6 @@ function parseTime(text) {
     if (!match) return null;
     return Number(match[1]) * 60 + Number(match[2]);
 }
-
-/* ---------------- FIRE CSS ---------------- */
-const style = document.createElement("style");
-style.textContent = `
-@keyframes fireSubtle {
-  0% { box-shadow: 0 0 6px 2px rgba(255, 69, 0, 0.4); }
-  50% { box-shadow: 0 0 16px 6px rgba(255, 140, 0, 0.4); }
-  100% { box-shadow: 0 0 6px 2px rgba(255, 69, 0, 0.4); }
-}
-@keyframes fireMedium {
-  0% { box-shadow: 0 0 10px 4px #ff4500; }
-  50% { box-shadow: 0 0 28px 12px #ffa500; }
-  100% { box-shadow: 0 0 10px 4px #ff4500; }
-}
-@keyframes fireFast {
-  0% { box-shadow: 0 0 14px 6px #ff4500; }
-  50% { box-shadow: 0 0 40px 18px #ffa500; }
-  100% { box-shadow: 0 0 14px 6px #ff4500; }
-}
-@keyframes fireIntense {
-  0% { box-shadow: 0 0 18px 8px #ff4500; }
-  50% { box-shadow: 0 0 50px 24px #ffa500; }
-  100% { box-shadow: 0 0 18px 8px #ff4500; }
-}
-
-/* Three.js Absolute Overlay Container */
-#threejs-overlay-container {
-    position: absolute;
-    z-index: -5;
-    pointer-events: none; 
-    display: none;
-}
-`;
-document.head.appendChild(style);
 
 /* ---------------- THREE.JS INITIALIZATION ---------------- */
 function initThreeJS(container) {
@@ -151,11 +131,32 @@ function animateThreeJS() {
     boxMesh.rotation.y = 0;
     boxMesh.rotation.x = 0;
 
-    uniforms.amplitude.value = 0.5 + Math.sin(time * 2.0) * 0.3;
+    // Dynamically adjust speeds based on remaining seconds
+    let speedModifier = 1.0;
+    let intensityModifier = 1.0;
+
+    if (currentSeconds !== null && currentSeconds <= LOW_TIME_SECONDS) {
+        if (currentSeconds <= 10) {
+            speedModifier = 4.0;      // Super fast spikes
+            intensityModifier = 1.8;  // Taller spikes
+        } else if (currentSeconds <= 20) {
+            speedModifier = 2.5;      // Fast spikes
+            intensityModifier = 1.4;
+        } else if (currentSeconds <= 25) {
+            speedModifier = 1.5;      // Medium spikes
+            intensityModifier = 1.1;
+        } else {
+            speedModifier = 0.8;      // Slow, subtle spikes
+            intensityModifier = 0.7;
+        }
+    }
+
+    // Apply speed modifiers to vertex waves and scaling amplitudes
+    uniforms.amplitude.value = (0.5 + Math.sin(time * 2.0 * speedModifier) * 0.3) * intensityModifier;
 
     const attribute = boxMesh.geometry.attributes.displacement;
     for (let i = 0; i < attribute.count; i++) {
-        attribute.array[i] += Math.sin(i + time * 5) * 0.5;
+        attribute.array[i] += Math.sin(i + time * 5 * speedModifier) * 0.5 * speedModifier;
         if (attribute.array[i] > 25) attribute.array[i] = 10;
         if (attribute.array[i] < 0) attribute.array[i] = 10;
     }
@@ -166,33 +167,16 @@ function animateThreeJS() {
 
 /* ---------------- OVERLAY ---------------- */
 function createOverlay(board) {
-    // 1. Board Fire Overlay
-    const el = document.createElement("div");
-    el.id = "low-time-fire-overlay";
-    el.hidden = true;
-
-    Object.assign(el.style, {
-        position: "absolute",
-        pointerEvents: "none",
-        borderRadius: "6px",
-        zIndex: "-5",
-        willChange: "box-shadow"
-    });
-
-    document.body.appendChild(el);
-    positionOverlay(el, board);
-
-    // 2. ThreeJS Container aligned over the board
+    // ThreeJS Container aligned over the board
     const threeContainer = document.createElement("div");
     threeContainer.id = "threejs-overlay-container";
 
     document.body.appendChild(threeContainer);
     positionOverlay(threeContainer, board);
-    threeContainer.style.zIndex = "-5";
 
     initThreeJS(threeContainer);
 
-    return el;
+    return threeContainer;
 }
 
 function positionOverlay(el, board) {
@@ -207,38 +191,34 @@ function positionOverlay(el, board) {
 
 /* ---------------- RE-POSITION AND SCALE ON WINDOW RESIZE ---------------- */
 window.addEventListener('resize', () => {
-    if (board && initialized) {
-        const threeContainer = document.getElementById("threejs-overlay-container");
-        if (threeContainer && overlay) {
-            positionOverlay(overlay, board);
-            positionOverlay(threeContainer, board);
+    if (board && initialized && overlayContainer) {
+        positionOverlay(overlayContainer, board);
 
-            const rect = board.getBoundingClientRect();
-            const expandedWidth = rect.width + (PADDING * 2);
-            const expandedHeight = rect.height + (PADDING * 2);
+        const rect = board.getBoundingClientRect();
+        const expandedWidth = rect.width + (PADDING * 2);
+        const expandedHeight = rect.height + (PADDING * 2);
 
-            if (renderer && camera && boxMesh) {
-                renderer.setSize(expandedWidth, expandedHeight);
+        if (renderer && camera && boxMesh) {
+            renderer.setSize(expandedWidth, expandedHeight);
 
-                // Update orthographic camera bounds dynamically
-                camera.left = -expandedWidth / 2;
-                camera.right = expandedWidth / 2;
-                camera.top = expandedHeight / 2;
-                camera.bottom = -expandedHeight / 2;
-                camera.updateProjectionMatrix();
+            // Update orthographic camera bounds dynamically
+            camera.left = -expandedWidth / 2;
+            camera.right = expandedWidth / 2;
+            camera.top = expandedHeight / 2;
+            camera.bottom = -expandedHeight / 2;
+            camera.updateProjectionMatrix();
 
-                // Re-size geometry to match original board dimensions precisely
-                boxMesh.geometry.dispose();
-                boxMesh.geometry = new THREE.BoxGeometry(rect.width, rect.height, 20, 40, 40, 40);
+            // Re-size geometry to match original board dimensions precisely
+            boxMesh.geometry.dispose();
+            boxMesh.geometry = new THREE.BoxGeometry(rect.width, rect.height, 20, 40, 40, 40);
 
-                // Re-populate custom displacement for the new geometry sizes
-                const numVertices = boxMesh.geometry.attributes.position.count;
-                displacement = new Float32Array(numVertices);
-                for (let i = 0; i < numVertices; i++) {
-                    displacement[i] = Math.random() * 15;
-                }
-                boxMesh.geometry.setAttribute('displacement', new THREE.BufferAttribute(displacement, 1));
+            // Re-populate custom displacement for the new geometry sizes
+            const numVertices = boxMesh.geometry.attributes.position.count;
+            displacement = new Float32Array(numVertices);
+            for (let i = 0; i < numVertices; i++) {
+                displacement[i] = Math.random() * 15;
             }
+            boxMesh.geometry.setAttribute('displacement', new THREE.BufferAttribute(displacement, 1));
         }
     }
 });
@@ -299,52 +279,35 @@ function start(board) {
     initialized = true;
 
     console.log("[LowTime] board found", board);
-    overlay = createOverlay(board);
+    overlayContainer = createOverlay(board);
 
     let previousTime = null;
 
     intervalId = setInterval(() => {
         const clocks = document.querySelectorAll('.clock-component.clock-bottom span');
-        const threeContainer = document.getElementById("threejs-overlay-container");
 
         if (!clocks.length) {
             console.log("[LowTime] game ended, stopping");
             clearInterval(intervalId);
-            overlay?.remove();
-            threeContainer?.remove();
+            overlayContainer?.remove();
             initialized = false;
+            currentSeconds = null;
             return;
         }
 
-        const seconds = getMyClockSeconds();
+        currentSeconds = getMyClockSeconds();
 
-        if (previousTime !== seconds) {
-            if (seconds !== null && seconds <= LOW_TIME_SECONDS) {
-                playSoundForSeconds(seconds);
+        if (previousTime !== currentSeconds) {
+            if (currentSeconds !== null && currentSeconds <= LOW_TIME_SECONDS) {
+                playSoundForSeconds(currentSeconds);
             }
-            previousTime = seconds;
+            previousTime = currentSeconds;
         }
 
-        if (seconds !== null && seconds <= LOW_TIME_SECONDS) {
-            overlay.hidden = false;
-            if (threeContainer) threeContainer.style.display = "block";
-
-            if (seconds <= 10) {
-                overlay.style.animationName = "fireIntense";
-                overlay.style.animationDuration = "0.15s";
-            } else if (seconds <= 20) {
-                overlay.style.animationName = "fireFast";
-                overlay.style.animationDuration = "0.25s";
-            } else if (seconds <= 25) {
-                overlay.style.animationName = "fireMedium";
-                overlay.style.animationDuration = "0.40s";
-            } else {
-                overlay.style.animationName = "fireSubtle";
-                overlay.style.animationDuration = "0.60s";
-            }
+        if (currentSeconds !== null && currentSeconds <= LOW_TIME_SECONDS) {
+            if (overlayContainer) overlayContainer.style.display = "block";
         } else {
-            overlay.hidden = true;
-            if (threeContainer) threeContainer.style.display = "none";
+            if (overlayContainer) overlayContainer.style.display = "none";
         }
     }, 250);
 }
