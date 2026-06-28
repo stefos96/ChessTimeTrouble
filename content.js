@@ -1,6 +1,6 @@
 console.log("[LowTime] content script loaded");
 
-let board
+let board;
 
 const LOW_TIME_SECONDS = 30;
 let overlay = null;
@@ -43,13 +43,9 @@ style.textContent = `
   100% { box-shadow: 0 0 18px 8px #ff4500; }
 }
 
-/* Three.js Centered Canvas Container */
+/* Three.js Absolute Overlay Container */
 #threejs-overlay-container {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;  
-    height: 100%; 
+    position: absolute;
     z-index: 5;
     pointer-events: none; 
     display: none;
@@ -59,15 +55,18 @@ document.head.appendChild(style);
 
 /* ---------------- THREE.JS INITIALIZATION ---------------- */
 function initThreeJS(container) {
-    // 1. Setup Camera and Scene
-    camera = new THREE.PerspectiveCamera(30, 1, 1, 10000);
+    if (!board) return;
+    const rect = board.getBoundingClientRect();
+
+    // 1. Setup Camera matching the aspect ratio of the board
+    const aspect = rect.width / rect.height;
+    camera = new THREE.PerspectiveCamera(30, aspect, 1, 10000);
     camera.position.z = 350;
 
     scene = new THREE.Scene();
 
-    // 2. Create a highly subdivided Box Geometry (Rectangle)
-    // Width, Height, Depth, followed by segment counts (64x64x64 creates thousands of vertices for spikes)
-    const width = 140;
+    // 2. Create a highly subdivided Box Geometry scaled to aspect ratio
+    const width = 140 * aspect;
     const height = 140;
     const depth = 20;
     const segments = 40;
@@ -78,17 +77,15 @@ function initThreeJS(container) {
     displacement = new Float32Array(numVertices);
 
     for (let i = 0; i < numVertices; i++) {
-        // Random baseline length for each spike
         displacement[i] = Math.random() * 15;
     }
 
-    // Attach custom attribute to the geometry
     geometry.setAttribute('displacement', new THREE.BufferAttribute(displacement, 1));
 
     // 4. Uniforms configuration
     uniforms = {
         amplitude: { value: 1.0 },
-        color: { value: new THREE.Color(0x81B64C) } // Deep blue look matching your example image
+        color: { value: new THREE.Color(0x81B64C) }
     };
 
     // 5. Shaders handling vertex protrusion along normals
@@ -99,7 +96,6 @@ function initThreeJS(container) {
         
         void main() {
             vNormal = normal;
-            // Push the vertex outward along the surface normal
             vec3 newPosition = position + normal * displacement * amplitude;
             gl_Position = projectionMatrix * modelViewMatrix * vec4(newPosition, 1.0);
         }
@@ -110,7 +106,6 @@ function initThreeJS(container) {
         varying vec3 vNormal;
         
         void main() {
-            // Light vector to give 3D depth map shadows to the spikes
             vec3 light = vec3(0.5, 0.2, 1.0);
             light = normalize(light);
             float dProd = max(0.1, dot(vNormal, light));
@@ -130,19 +125,10 @@ function initThreeJS(container) {
     boxMesh = new THREE.Mesh(geometry, shaderMaterial);
     scene.add(boxMesh);
 
-    // 7. Setup WebGL Renderer
+    // 7. Setup WebGL Renderer matching exact board sizing
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(window.devicePixelRatio);
-
-    let rectWidth = 400
-    let rectHeight = 400
-
-    if (board) {
-        const rect = board.getBoundingClientRect();
-        rectWidth = rect.width + 100;
-        rectHeight = rect.height + 100;
-    }
-    renderer.setSize(rectWidth, rectHeight);
+    renderer.setSize(rect.width, rect.height);
     container.appendChild(renderer.domElement);
 
     animateThreeJS();
@@ -154,25 +140,17 @@ function animateThreeJS() {
 
     const time = Date.now() * 0.001;
 
-    // Slowly rotate the spiky box
-    // boxMesh.rotation.y = time * 0.3;
-    // boxMesh.rotation.x = time * 0.2;
+    boxMesh.rotation.y = 0;
+    boxMesh.rotation.x = 0;
 
-    boxMesh.rotation.y = 0
-    boxMesh.rotation.x = 0
-
-    // Change the overall scale pulse of the spikes over time
     uniforms.amplitude.value = 0.5 + Math.sin(time * 2.0) * 0.3;
 
-    // Dynamically update individual spikes to make them dance and ripple
     const attribute = boxMesh.geometry.attributes.displacement;
     for (let i = 0; i < attribute.count; i++) {
         attribute.array[i] += Math.sin(i + time * 5) * 0.5;
-        // Bound checking
         if (attribute.array[i] > 25) attribute.array[i] = 10;
         if (attribute.array[i] < 0) attribute.array[i] = 10;
     }
-    // Flag to Three.js that data mutated
     attribute.needsUpdate = true;
 
     renderer.render(scene, camera);
@@ -196,10 +174,13 @@ function createOverlay(board) {
     document.body.appendChild(el);
     positionOverlay(el, board);
 
-    // 2. Centered ThreeJS Container
+    // 2. ThreeJS Container aligned over the board
     const threeContainer = document.createElement("div");
     threeContainer.id = "threejs-overlay-container";
+
     document.body.appendChild(threeContainer);
+    positionOverlay(threeContainer, board);
+    threeContainer.style.zIndex = "5"; // Render explicitly in front of the board layout
 
     initThreeJS(threeContainer);
 
@@ -208,13 +189,29 @@ function createOverlay(board) {
 
 function positionOverlay(el, board) {
     const rect = board.getBoundingClientRect();
-    el.style.left = rect.left + "px";
-    el.style.top = rect.top + "px";
+    el.style.left = (rect.left + window.scrollX) + "px";
+    el.style.top = (rect.top + window.scrollY) + "px";
     el.style.width = rect.width + "px";
     el.style.height = rect.height + "px";
-    el.style.position = "absolute";
-    el.style.zIndex = "-1";
 }
+
+/* ---------------- RE-POSITION ON WINDOW RESIZE ---------------- */
+window.addEventListener('resize', () => {
+    if (board && initialized) {
+        const threeContainer = document.getElementById("threejs-overlay-container");
+        if (threeContainer && overlay) {
+            positionOverlay(overlay, board);
+            positionOverlay(threeContainer, board);
+
+            const rect = board.getBoundingClientRect();
+            if (renderer && camera) {
+                renderer.setSize(rect.width, rect.height);
+                camera.aspect = rect.width / rect.height;
+                camera.updateProjectionMatrix();
+            }
+        }
+    }
+});
 
 /* ---------------- SOUND SYSTEM ---------------- */
 const audioContext = new (window.AudioContext || window.webkitAudioContext)();
