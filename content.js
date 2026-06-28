@@ -57,7 +57,7 @@ function initThreeJS(container) {
 
     scene = new THREE.Scene();
 
-    // 1. GENERATE CORE PARTICLES LAYER (Single system handling Core + Close Glow Ring)
+    // 1. GENERATE CORE PARTICLES LAYER
     const rows = 50;
     const cols = 50;
     const thickness = 5;
@@ -92,7 +92,7 @@ function initThreeJS(container) {
 
     uniforms = {
         color: { value: new THREE.Color(0x81B64C) },
-        pointSize: { value: window.devicePixelRatio * 16.0 } // Large canvas area per point to hold the tight glow gradient
+        pointSize: { value: window.devicePixelRatio * 16.0 }
     };
 
     const vertexShader = `
@@ -111,14 +111,8 @@ function initThreeJS(container) {
             float dist = length(centerDist);
             if (dist > 0.5) discard;
             
-            // Multi-stage interpolation for an organic integrated glow:
-            // 1. High-intensity sharp inner core (from center 0.0 to 0.15)
             float core = smoothstep(0.15, 0.0, dist);
-            
-            // 2. Immediate fading outer aura ring (from edge 0.5 down to 0.15)
             float glow = smoothstep(0.5, 0.10, dist) * 0.4;
-            
-            // Combine both stages so the halo is perfectly anchored directly to its core
             float totalAlpha = core + glow;
             
             gl_FragColor = vec4(color, totalAlpha);
@@ -137,7 +131,7 @@ function initThreeJS(container) {
     particleSystem = new THREE.Points(geometry, shaderMaterial);
     scene.add(particleSystem);
 
-    // 2. GENERATE SCATTERED AMORPHOUS BACKGROUND GLOW (The true smoky background layer)
+    // 2. GENERATE SCATTERED AMORPHOUS BACKGROUND GLOW
     const scatterCount = 180;
     const scatteredGeo = new THREE.BufferGeometry();
     const scatterPositions = new Float32Array(scatterCount * 3);
@@ -153,7 +147,6 @@ function initThreeJS(container) {
         scatterPositions[i * 3 + 1] = 0;
         scatterPositions[i * 3 + 2] = -10;
 
-        // Scatter footprint values
         scatterData[i * 3] = (Math.random() - 0.5) * 50.0;
         scatterData[i * 3 + 1] = (Math.random() - 0.5) * 50.0;
         scatterData[i * 3 + 2] = Math.random() * 0.5 + 0.7;
@@ -191,7 +184,6 @@ function initThreeJS(container) {
             float dist = length(centerDist);
             if (dist > 0.5) discard;
 
-            // Wide ambient cloud profile
             float alpha = smoothstep(0.5, 0.0, dist) * (0.07 * vScale);
             gl_FragColor = vec4(color, alpha);
         }
@@ -209,6 +201,11 @@ function initThreeJS(container) {
     scatteredGlowSystem = new THREE.Points(scatteredGeo, scatteredGlowMaterial);
     scene.add(scatteredGlowSystem);
 
+    // Initial color pull configuration from chrome local sync profiles
+    chrome.storage.sync.get({ glowColor: '#81B64C' }, (items) => {
+        updateActiveGlowColor(items.glowColor);
+    });
+
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -217,6 +214,23 @@ function initThreeJS(container) {
     updateMeshPositionAndScale();
     animateThreeJS();
 }
+
+// Utility to apply color updates safely into active shader variables
+function updateActiveGlowColor(hexColor) {
+    if (uniforms && uniforms.color) {
+        uniforms.color.value.set(hexColor);
+    }
+    if (scatteredGlowUniforms && scatteredGlowUniforms.color) {
+        scatteredGlowUniforms.color.value.set(hexColor);
+    }
+}
+
+// Global hook setting listening protocols for user-facing option updates
+chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'sync' && changes.glowColor) {
+        updateActiveGlowColor(changes.glowColor.newValue);
+    }
+});
 
 let targetWidth = 0;
 let targetHeight = 0;
@@ -248,7 +262,6 @@ function animateThreeJS() {
 
     const time = Date.now() * 0.001;
 
-    // Default: Smooth, gentle fluid motion
     let speedModifier = 2.0;
     let intensityModifier = 0.03;
     let waveFrequency = 12.0;
@@ -277,7 +290,6 @@ function animateThreeJS() {
         }
     }
 
-    // 1. ANIMATE INTEGRATED GRID PARTICLES
     const coreGeo = particleSystem.geometry;
     const corePositions = coreGeo.attributes.position.array;
     const coreGridCoords = coreGeo.attributes.gridCoord.array;
@@ -296,7 +308,6 @@ function animateThreeJS() {
     }
     coreGeo.attributes.position.needsUpdate = true;
 
-    // 2. ANIMATE AMORPHOUS BACKGROUND CLOWNS
     const scatterGeo = scatteredGlowSystem.geometry;
     const scatterPositions = scatterGeo.attributes.position.array;
     const scatterGridCoords = scatterGeo.attributes.gridCoord.array;

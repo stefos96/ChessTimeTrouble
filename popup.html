@@ -82,6 +82,30 @@
             left: 24px;
         }
 
+        /* Color picker custom wrapper styles */
+        .color-picker-wrapper {
+            position: relative;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            overflow: hidden;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+
+        .color-picker-wrapper input[type="color"] {
+            position: absolute;
+            top: -5px;
+            left: -5px;
+            width: 46px;
+            height: 46px;
+            border: none;
+            background: none;
+            cursor: pointer;
+            padding: 0;
+        }
+
         .info-box {
             padding: 10px;
             background: rgba(255, 255, 255, 0.1);
@@ -98,25 +122,35 @@
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>⏱️ Chess Timer Sounds</h1>
-        
-        <div class="setting-group">
-            <div class="setting-label">
-                <div class="title">Sound Alerts</div>
-                <div class="description">Enable/disable timer sounds</div>
-            </div>
-            <div id="soundToggle" class="toggle-switch"></div>
-        </div>
+<div class="container">
+    <h1>⏱️ Chess Timer Options</h1>
 
-        <div class="info-box">
-            <strong>Sound Schedule:</strong>
-            • Every 10s: Beep<br>
-            • At 30s: Warning tone<br>
-            • Last 10s: Ticking sound
+    <div class="setting-group">
+        <div class="setting-label">
+            <div class="title">Sound Alerts</div>
+            <div class="description">Enable/disable timer sounds</div>
+        </div>
+        <div id="soundToggle" class="toggle-switch"></div>
+    </div>
+
+    <div class="setting-group">
+        <div class="setting-label">
+            <div class="title">Glow Theme Color</div>
+            <div class="description">Change grid and overlay colors</div>
+        </div>
+        <div class="color-picker-wrapper">
+            <input type="color" id="glowColorPicker" value="#81B64C">
         </div>
     </div>
 
-    <script src="popup.js"></script>
+    <div class="info-box">
+        <strong>Sound Schedule:</strong>
+        • Every 10s: Beep<br>
+        • At 30s: Warning tone<br>
+        • Last 10s: Ticking sound
+    </div>
+</div>
+
+<script src="popup.js"></script>
 </body>
 </html>
