@@ -10,7 +10,7 @@ let lastSoundTime = {};
 let currentSeconds = null;
 
 // Three.js variables
-let renderer, scene, camera, boxMesh, uniforms, displacement;
+let renderer, scene, camera, particleSystem, uniforms;
 
 /* ---------------- FULL-WINDOW CANVAS OVERLAY ---------------- */
 const style = document.createElement("style");
@@ -57,42 +57,57 @@ function initThreeJS(container) {
 
     scene = new THREE.Scene();
 
-    const geometry = new THREE.SphereGeometry(1, 64, 64);
+    // Grid Dimensions
+    const rows = 50;
+    const cols = 50;
+    const thickness = 5;
+    const particleCount = (rows * cols) - ((rows - thickness * 2) * (cols - thickness * 2));
 
-    const numVertices = geometry.attributes.position.count;
-    displacement = new Float32Array(numVertices);
-    for (let i = 0; i < numVertices; i++) {
-        displacement[i] = Math.random() * 15;
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const gridCoords = new Float32Array(particleCount * 2);
+
+    let index = 0;
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            const isBorder = r < thickness || r >= rows - thickness || c < thickness || c >= cols - thickness;
+
+            if (isBorder) {
+                const normX = (c / (cols - 1)) - 0.5;
+                const normY = (r / (rows - 1)) - 0.5;
+
+                gridCoords[index * 2] = normX;
+                gridCoords[index * 2 + 1] = normY;
+
+                positions[index * 3] = 0;
+                positions[index * 3 + 1] = 0;
+                positions[index * 3 + 2] = 0;
+                index++;
+            }
+        }
     }
-    geometry.setAttribute('displacement', new THREE.BufferAttribute(displacement, 1));
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('gridCoord', new THREE.BufferAttribute(gridCoords, 2));
 
     uniforms = {
-        amplitude: { value: 1.0 },
-        color: { value: new THREE.Color(0x81B64C) }
+        color: { value: new THREE.Color(0x81B64C) },
+        pointSize: { value: window.devicePixelRatio * 3.5 }
     };
 
     const vertexShader = `
-        uniform float amplitude;
-        attribute float displacement;
-        varying vec3 vNormal;
-        
+        uniform float pointSize;
         void main() {
-            vNormal = normal;
-            vec3 direction = normalize(position);
-            vec3 newPosition = position + direction * (displacement * amplitude * 0.05);
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(newPosition, 1.0);
+            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+            gl_Position = projectionMatrix * mvPosition;
+            gl_PointSize = pointSize;
         }
     `;
 
     const fragmentShader = `
         uniform vec3 color;
-        varying vec3 vNormal;
-        
         void main() {
-            vec3 light = vec3(0.5, 0.2, 1.0);
-            light = normalize(light);
-            float dProd = max(0.2, dot(vNormal, light));
-            gl_FragColor = vec4(color * dProd, 1.0);
+            gl_FragColor = vec4(color, 1.0);
         }
     `;
 
@@ -100,11 +115,12 @@ function initThreeJS(container) {
         uniforms: uniforms,
         vertexShader: vertexShader,
         fragmentShader: fragmentShader,
-        wireframe: false
+        transparent: true,
+        depthTest: false
     });
 
-    boxMesh = new THREE.Mesh(geometry, shaderMaterial);
-    scene.add(boxMesh);
+    particleSystem = new THREE.Points(geometry, shaderMaterial);
+    scene.add(particleSystem);
 
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(window.devicePixelRatio);
@@ -112,80 +128,94 @@ function initThreeJS(container) {
     container.appendChild(renderer.domElement);
 
     updateMeshPositionAndScale();
-
     animateThreeJS();
 }
 
-// Moved calculations out of RAF loop to avoid triggering chess engine state lockups
+let targetWidth = 0;
+let targetHeight = 0;
+let targetCenterX = 0;
+let targetCenterY = 0;
+
 function updateMeshPositionAndScale() {
-    if (!board || !boxMesh) return;
+    if (!board || !particleSystem) return;
 
     const rect = board.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return; // Guard against hidden elements
+    if (rect.width === 0 || rect.height === 0) return;
 
-    boxMesh.scale.set(rect.width / 2, rect.height / 2, 10);
+    const padding = 20;
+    targetWidth = rect.width + padding;
+    targetHeight = rect.height + padding;
 
     const screenCenterX = window.innerWidth / 2;
     const screenCenterY = window.innerHeight / 2;
     const boardCenterX = rect.left + (rect.width / 2);
     const boardCenterY = rect.top + (rect.height / 2);
 
-    boxMesh.position.x = boardCenterX - screenCenterX;
-    boxMesh.position.y = screenCenterY - boardCenterY;
+    targetCenterX = boardCenterX - screenCenterX;
+    targetCenterY = screenCenterY - boardCenterY;
 }
 
 function animateThreeJS() {
     requestAnimationFrame(animateThreeJS);
-    if (!boxMesh) return;
+    if (!particleSystem) return;
 
     const time = Date.now() * 0.001;
 
-    // Default: Smooth, slow idle breathing for times > 30 seconds
-    let speedModifier = 0.5;
-    let intensityModifier = 0.6;
+    // Default: Smooth, gentle fluid motion
+    let speedModifier = 2.0;
+    let intensityModifier = 0.03;
+    let waveFrequency = 12.0; // Controls how tightly packed the wavy ripples are
 
     if (currentSeconds !== null && currentSeconds <= LOW_TIME_SECONDS) {
         if (currentSeconds <= 10) {
-            speedModifier = 4.0;
-            intensityModifier = 1.8;
+            speedModifier = 7.5;       // Fast, high-tension elastic snap
+            intensityModifier = 0.09;  // Heavy displacement
+            waveFrequency = 20.0;      // Erratic, tightly grouped ripples
         } else if (currentSeconds <= 20) {
-            speedModifier = 2.5;
-            intensityModifier = 1.4;
+            speedModifier = 5.5;
+            intensityModifier = 0.07;
+            waveFrequency = 16.0;
         } else if (currentSeconds <= 25) {
-            speedModifier = 1.5;
-            intensityModifier = 1.1;
+            speedModifier = 3.8;
+            intensityModifier = 0.05;
+            waveFrequency = 14.0;
         } else if (currentSeconds <= 30) {
-            speedModifier = 1.4;
-            intensityModifier = 1.08;
-        } else if (currentSeconds <= 40) {
-            speedModifier = 1.35;
-            intensityModifier = 1.05;
+            speedModifier = 2.8;
+            intensityModifier = 0.04;
+            waveFrequency = 13.0;
         } else {
-            speedModifier = 1.3;
-            intensityModifier = 1.0;
+            speedModifier = 2.3;
+            intensityModifier = 0.035;
+            waveFrequency = 12.5;
         }
     }
 
-    // Set the baseline scale pulsation via uniforms
-    uniforms.amplitude.value = (0.5 + Math.sin(time * 2.0 * speedModifier) * 0.3) * intensityModifier;
+    const geometry = particleSystem.geometry;
+    const positions = geometry.attributes.position.array;
+    const gridCoords = geometry.attributes.gridCoord.array;
+    const count = geometry.attributes.position.count;
 
-    const attribute = boxMesh.geometry.attributes.displacement;
-    for (let i = 0; i < attribute.count; i++) {
-        if (currentSeconds === null || currentSeconds > 40) {
-            // Calm, uniform breathing rhythm (Perfect sphere)
-            attribute.array[i] = 4.0 + Math.sin(time * 1.5) * 1.5;
-        } else if (currentSeconds > 30 && currentSeconds <= 40) {
-            // Transitional subtle texture: uses continuous sine mapping to remove sharp cuts
-            // 'i * 0.15' clumps vertices together into soft, rolling humps
-            attribute.array[i] = 8.0 + Math.sin(i * 0.15 + time * 2.0 * speedModifier) * 2.0;
-        } else {
-            // LOW TIME: Noticeable spikes, but structurally smooth.
-            // No hard 'if' clamp jumps anymore. Spikes are taller but have safe rounded tips/valleys.
-            attribute.array[i] = 10.0 + Math.sin(i * 0.15 + time * 5.0 * speedModifier) * 4.5;
-        }
+    for (let i = 0; i < count; i++) {
+        const normX = gridCoords[i * 2];
+        const normY = gridCoords[i * 2 + 1];
+
+        // Determine particle's distance from the absolute core center (0,0) to map the wave gradient
+        const distanceFromCenter = Math.sqrt(normX * normX + normY * normY);
+
+        // Elastic Wave Equation: combines time progression with a spatial distance offset
+        // Subtracting 'distanceFromCenter * waveFrequency' creates a ripple that travels outward
+        const wave = Math.sin(time * speedModifier - distanceFromCenter * waveFrequency);
+
+        // Dynamic elasticity factor applied uniquely to each grid point
+        const elasticBreathFactor = 1.0 + wave * intensityModifier;
+
+        // Apply grid coordinates transformed by the unique ripple factor and center it onto the board
+        positions[i * 3]     = (normX * targetWidth * elasticBreathFactor) + targetCenterX;
+        positions[i * 3 + 1] = (normY * targetHeight * elasticBreathFactor) + targetCenterY;
+        positions[i * 3 + 2] = 0;
     }
-    attribute.needsUpdate = true;
 
+    geometry.attributes.position.needsUpdate = true;
     renderer.render(scene, camera);
 }
 
@@ -296,7 +326,6 @@ function start(board) {
         }
 
         if (currentSeconds !== null) {
-            // Safely verify and update positions every quarter second rather than every frame
             updateMeshPositionAndScale();
             if (overlayContainer) overlayContainer.style.display = "block";
         } else {
