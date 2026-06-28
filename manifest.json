@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Chess.com Low Time Warning",
-  "version": "2.1",
+  "version": "2.2",
   "description": "Creates a breathing grid that moves depending on the time left on the clock.",
   "icons": {
     "16": "icon16.png",
